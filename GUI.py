@@ -4,7 +4,7 @@ import threading
 import requests
 import urllib3
 import time
-import socket  # 新增：用於控制網路超時
+import socket
 
 # 引用你的原始模組
 import TronClassSkiper
@@ -15,8 +15,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class TronClassGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("TronClass 學習小幫手 GUI (V3 穩定版)")
-        self.root.geometry("600x550")
+        self.root.title("TronClass 學習小幫手 GUI (V5 完善版)")
+        self.root.geometry("600x600") # 稍微加高一點以容納新按鈕
         
         # 變數設定
         self.session_var = tk.StringVar()
@@ -25,7 +25,7 @@ class TronClassGUI:
         
         # 線程控制事件
         self.pause_event = threading.Event()
-        self.pause_event.set()  # 預設為 True (綠燈/執行中)
+        self.pause_event.set()
         self.stop_event = threading.Event()
         self.is_running = False
 
@@ -60,21 +60,31 @@ class TronClassGUI:
         self.btn_stop = ttk.Button(self.run_btns_frame, text="終止任務", command=self.stop_task)
         self.btn_stop.pack(side="left", fill="x", expand=True, padx=5)
 
-        # 3. 進度與日誌
+        # 3. 進度與日誌區域
         log_frame = ttk.LabelFrame(self.root, text="執行日誌", padding=10)
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # 進度條
         self.progress = ttk.Progressbar(log_frame, orient="horizontal", mode="determinate")
         self.progress.pack(fill="x", pady=(0, 10))
         
+        # 日誌文字框
         self.log_text = scrolledtext.ScrolledText(log_frame, height=12, state='disabled')
         self.log_text.pack(fill="both", expand=True)
 
-        self.status_label = ttk.Label(log_frame, text="待機中", foreground="gray")
-        self.status_label.pack(anchor="e")
+        # --- 底部狀態欄與清除按鈕 ---
+        bottom_bar = ttk.Frame(log_frame)
+        bottom_bar.pack(fill="x", pady=(5, 0))
+
+        # 清除 LOG 按鈕 (左側)
+        self.btn_clear_log = ttk.Button(bottom_bar, text="清除日誌", command=self.clear_log)
+        self.btn_clear_log.pack(side="left")
+
+        # 狀態標籤 (右側)
+        self.status_label = ttk.Label(bottom_bar, text="待機中", foreground="gray")
+        self.status_label.pack(side="right")
 
     def log(self, message):
-        """線程安全的日誌寫入"""
         self.root.after(0, lambda: self._write_log(message))
 
     def _write_log(self, message):
@@ -83,16 +93,24 @@ class TronClassGUI:
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
 
+    def clear_log(self):
+        """清除日誌內容"""
+        self.log_text.config(state='normal')
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state='disabled')
+
     def toggle_ui_state(self, running):
         if running:
             self.btn_start.pack_forget()
             self.run_btns_frame.pack(fill="x", pady=5)
             self.status_label.config(text="正在執行...", foreground="blue")
+            self.btn_clear_log.config(state="disabled") # 執行中建議鎖住清除，避免混亂，若想開放可拿掉這行
         else:
             self.run_btns_frame.pack_forget()
             self.btn_start.pack(fill="x", pady=5)
             self.btn_pause.config(text="暫停")
             self.status_label.config(text="待機中", foreground="gray")
+            self.btn_clear_log.config(state="normal")
 
     def start_task(self):
         session_id = self.session_var.get().strip()
@@ -107,18 +125,18 @@ class TronClassGUI:
         self.is_running = True
         
         self.toggle_ui_state(True)
-        self.log("=== 開始任務 (V3) ===")
+        self.log("=== 開始任務 (V5) ===")
         
         threading.Thread(target=self.run_logic, args=(session_id, code), daemon=True).start()
 
     def toggle_pause(self):
         if self.pause_event.is_set():
-            self.pause_event.clear() # 設定為 False (紅燈/暫停)
+            self.pause_event.clear()
             self.btn_pause.config(text="繼續執行")
             self.log(">>> 暫停中...")
             self.status_label.config(text="已暫停", foreground="orange")
         else:
-            self.pause_event.set() # 設定為 True (綠燈/繼續)
+            self.pause_event.set()
             self.btn_pause.config(text="暫停")
             self.log(">>> 繼續執行")
             self.status_label.config(text="正在執行...", foreground="blue")
@@ -128,35 +146,22 @@ class TronClassGUI:
             if messagebox.askyesno("確認", "確定要終止當前任務嗎？"):
                 self.log("!!! 正在發送終止信號...")
                 self.stop_event.set()
-                # 這裡不需要 set pause_event，因為 check_flags 的輪詢機制會自動處理
 
     def check_flags(self):
-        """
-        改進後的檢查點：
-        使用迴圈輪詢，而不是死等 (wait)。
-        這樣即使在暫停狀態下，也能立刻響應停止訊號。
-        """
         if self.stop_event.is_set():
             raise InterruptedError("使用者終止任務")
         
-        # 如果暫停了 (pause_event 被 clear)
         while not self.pause_event.is_set():
             if self.stop_event.is_set():
                 raise InterruptedError("使用者終止任務")
-            time.sleep(0.1) # 短暫睡眠，避免吃滿 CPU
-            # 這裡不會卡死，會每 0.1 秒醒來檢查一次狀態
+            time.sleep(0.1)
 
     def run_logic(self, session_id, code):
-        # --- 關鍵修正：設定全域 Socket 超時 ---
-        # 防止 requests 卡死在網路層。設定為 10 秒。
         socket.setdefaulttimeout(10)
         
         try:
             TronClassSkiper.session_id = session_id
             TronClassSkiper.session.cookies.set("session", session_id)
-            
-            # 重新建立 Session 以確保乾淨的狀態 (選用，但推薦)
-            # 這裡我們保留原作者的結構，但確保 headers 正確
             TronClassSkiper.session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
@@ -174,8 +179,11 @@ class TronClassGUI:
 
         except InterruptedError:
             self.log("=== 任務已強制終止 ===")
+            # --- 新增功能：終止後清空進度條 ---
+            self.root.after(0, lambda: self.progress.configure(value=0))
+            
         except socket.timeout:
-            self.log("!!! 錯誤: 網路連線逾時，請檢查網路或稍後再試。")
+            self.log("!!! 錯誤: 網路連線逾時")
             self.root.after(0, lambda: messagebox.showerror("錯誤", "網路連線逾時"))
         except Exception as e:
             self.log(f"發生錯誤: {str(e)}")
@@ -183,36 +191,26 @@ class TronClassGUI:
         finally:
             self.is_running = False
             self.root.after(0, lambda: self.toggle_ui_state(False))
-            # 恢復預設超時設定，避免影響其他程式（如果有的話）
             socket.setdefaulttimeout(None)
 
     def process_single_video(self, video_id):
         self.check_flags()
         self.log(f"正在分析影片 ID: {video_id}...")
         
-        # 增加重試機制防止讀取影片時間失敗
-        total_time = 0
         try:
             total_time = TronClassSkiper.getVideoTime(video_id)
-        except Exception as e:
-            self.log(f"讀取影片資訊失敗: {e}")
-            return
-
-        self.root.after(0, lambda: self.progress.configure(maximum=total_time, value=0))
-        
-        current_progress = 0
-        # 這裡的迴圈依賴 generator，我們加上 try-except 包裹來處理網路中斷
-        try:
+            self.root.after(0, lambda: self.progress.configure(maximum=total_time, value=0))
+            
+            current_progress = 0
             for added_time in TronClassSkiper.API_Skip(video_id):
                 self.check_flags()
                 current_progress += added_time
                 self.root.after(0, lambda v=current_progress: self.progress.configure(value=v))
-        except socket.timeout:
-            self.log(f"警告: 影片 {video_id} 處理過程中網路逾時。")
+        except InterruptedError:
+            raise
         except Exception as e:
-            self.log(f"警告: 影片 {video_id} 處理中斷: {e}")
+            self.log(f"警告: 影片 {video_id} 錯誤: {e}")
 
-            
     def process_course(self, course_id):
         self.check_flags()
         self.log(f"正在掃描課程 ID: {course_id}...")
@@ -229,7 +227,7 @@ class TronClassGUI:
         activities = response.json().get("activities", [])
         target_ids = [a["id"] for a in activities if a.get("type") == "online_video"]
         
-        self.log(f"找到 {len(target_ids)} 個影片，計算總時長中(可能會花一點時間)...")
+        self.log(f"找到 {len(target_ids)} 個影片，計算總時長中...")
         
         total_length = 0
         valid_ids = []
@@ -237,12 +235,11 @@ class TronClassGUI:
         for vid in target_ids:
             self.check_flags()
             try:
-                # 這裡也要防範單個獲取時間失敗導致全崩
                 t = TronClassSkiper.getVideoTime(vid)
                 total_length += t
                 valid_ids.append(vid)
             except Exception:
-                self.log(f"跳過無法讀取的影片 ID: {vid}")
+                pass
 
         self.log(f"總任務時長: {total_length} 秒。開始執行...")
         self.root.after(0, lambda: self.progress.configure(maximum=total_length, value=0))
@@ -250,15 +247,17 @@ class TronClassGUI:
         current_total_progress = 0
         
         for vid in valid_ids:
+            self.check_flags()
             self.log(f"-> 處理影片: {vid}")
             try:
                 for added_time in TronClassSkiper.API_Skip(vid):
                     self.check_flags()
                     current_total_progress += added_time
                     self.root.after(0, lambda v=current_total_progress: self.progress.configure(value=v))
+            except InterruptedError:
+                raise 
             except Exception as e:
-                self.log(f"影片 {vid} 發生錯誤 (可能是網路問題)，跳過: {e}")
-                # 跳過該影片，繼續下一個，而不是崩潰
+                self.log(f"影片 {vid} 發生錯誤，跳過: {e}")
                 continue
 
 if __name__ == "__main__":
