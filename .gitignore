@@ -1,3 +1,5 @@
 venv/
 mySession.py
 __pycache__/
+build/
+GUI.spec
