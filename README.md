@@ -1,5 +1,10 @@
 # 這是啥?
 這是一個超級懶的費柴因為不想看生涯規劃而做的腳本，可以幾秒**看完**影片
+# 使用
+[下載exe發行版](https://github.com/TW-RF54732/lolSkiper/releases/tag/GUI%E7%99%BC%E8%A1%8C%E7%89%88)
+執行。 Windows 可能會誤認為病毒，請案詳細資訊後按繼續執行
+在session中輸入session和影片/課程號碼(不會的到完全保母及教學第五項)
+---
 # 一般教學
 ## Setup
 ```
